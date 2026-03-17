@@ -6,83 +6,54 @@
 #include <hyprland/src/managers/HookSystemManager.hpp>
 
 class CScrollingLayout;
-struct SColumnData;
 struct SWorkspaceData;
 
+// --- 2.2 Camera System ---
+struct SCamera {
+    float x = 0.f;
+    float y = 0.f;
+    float scale = 1.0f;
+};
+
+// --- 2.1 World Model (Window Data) ---
 struct SScrollingWindowData {
-    SScrollingWindowData(PHLWINDOW w, SP<SColumnData> col, float ws = 1.F) : window(w), column(col), windowSize(ws) {
-        ;
-    }
+    SScrollingWindowData(PHLWINDOW w, SP<SWorkspaceData> ws) : window(w), workspace(ws) {}
 
-    PHLWINDOWREF    window;
-    WP<SColumnData> column;
-    float           windowSize             = 1.F;
-    bool            ignoreFullscreenChecks = false;
-    PHLWORKSPACEREF overrideWorkspace;
+    PHLWINDOWREF       window;
+    WP<SWorkspaceData> workspace;
 
-    CBox            layoutBox;
+    // Persistent world-space coordinates independent of the viewport
+    float              world_x = 0.f;
+    float              world_y = 0.f;
+    float              width   = 0.f;
+    float              height  = 0.f;
+
+    bool               ignoreFullscreenChecks = false;
+    PHLWORKSPACEREF    overrideWorkspace;
+
+    CBox               layoutBox; // Used for passing computed screen-space to the renderer
 };
 
-struct SColumnData {
-    SColumnData(SP<SWorkspaceData> ws) : workspace(ws) {
-        ;
-    }
-
-    void                                  add(PHLWINDOW w);
-    void                                  add(PHLWINDOW w, int after);
-    void                                  add(SP<SScrollingWindowData> w);
-    void                                  add(SP<SScrollingWindowData> w, int after);
-    void                                  remove(PHLWINDOW w);
-    bool                                  has(PHLWINDOW w);
-    size_t                                idx(PHLWINDOW w);
-
-    // index of lowest window that is above y.
-    size_t                                idxForHeight(float y);
-
-    void                                  up(SP<SScrollingWindowData> w);
-    void                                  down(SP<SScrollingWindowData> w);
-
-    SP<SScrollingWindowData>              next(SP<SScrollingWindowData> w);
-    SP<SScrollingWindowData>              prev(SP<SScrollingWindowData> w);
-
-    std::vector<SP<SScrollingWindowData>> windowDatas;
-    float                                 columnSize  = 1.F;
-    float                                 columnWidth = 1.F;
-    WP<SWorkspaceData>                    workspace;
-    WP<SScrollingWindowData>              lastFocusedWindow;
-
-    WP<SColumnData>                       self;
-};
-
+// --- 8. Workspace Integration ---
 struct SWorkspaceData {
-    SWorkspaceData(PHLWORKSPACE w, CScrollingLayout* l) : workspace(w), layout(l) {
-        ;
-    }
+    SWorkspaceData(PHLWORKSPACE w, CScrollingLayout* l) : workspace(w), layout(l) {}
 
-    PHLWORKSPACEREF              workspace;
-    std::vector<SP<SColumnData>> columns;
-    float                        leftOffset = 0;
+    PHLWORKSPACEREF                       workspace;
+    std::vector<SP<SScrollingWindowData>> windowDatas; // Flat list of windows, replacing columns
+    
+    // Each workspace maintains an independent world and camera state
+    SCamera                               camera;
 
-    SP<SColumnData>              add();
-    SP<SColumnData>              add(int after);
-    int64_t                      idx(SP<SColumnData> c);
-    void                         remove(SP<SColumnData> c);
-    double                       maxWidth();
-    SP<SColumnData>              next(SP<SColumnData> c);
-    SP<SColumnData>              prev(SP<SColumnData> c);
-    SP<SColumnData>              atCenter();
+    void                                  addWindow(SP<SScrollingWindowData> w);
+    void                                  removeWindow(PHLWINDOW w);
 
-    bool                         visible(SP<SColumnData> c);
-    void                         centerCol(SP<SColumnData> c);
-    void                         fitCol(SP<SColumnData> c);
-    void                         centerOrFitCol(SP<SColumnData> c);
+    void                                  recalculate(bool forceInstant = false);
 
-    void                         recalculate(bool forceInstant = false);
-
-    CScrollingLayout*            layout = nullptr;
-    WP<SWorkspaceData>           self;
+    CScrollingLayout* layout = nullptr;
+    WP<SWorkspaceData>                    self;
 };
 
+// --- Renderer Integration & Layout Manager ---
 class CScrollingLayout : public IHyprLayout {
   public:
     virtual void                     onWindowCreatedTiling(PHLWINDOW, eDirection direction = DIRECTION_DEFAULT);
@@ -113,22 +84,16 @@ class CScrollingLayout : public IHyprLayout {
     SP<HOOK_CALLBACK_FN>            m_configCallback;
     SP<HOOK_CALLBACK_FN>            m_focusCallback;
 
+    // Config struct for tunable parameters (Phase 4 & 5)
     struct {
-        bool isMovingColumn    = false;
-        int  targetWorkspaceID = -1;
-    } m_columnMoveState;
-
-    struct {
-        std::vector<float> configuredWidths;
+        float focus_visibility_threshold = 0.4f;
+        float viewport_margin_ratio = 0.3f;
     } m_config;
 
-    SP<SScrollingWindowData> findBestNeighbor(SP<SScrollingWindowData> pCurrent, SP<SColumnData> pTargetCol);
     SP<SWorkspaceData>       dataFor(PHLWORKSPACE ws);
     SP<SScrollingWindowData> dataFor(PHLWINDOW w);
-    SP<SWorkspaceData>       currentWorkspaceData();
 
-    void                     applyNodeDataToWindow(SP<SScrollingWindowData> node, bool instant, bool hasWindowsRight, bool hasWindowsLeft);
-    void                     focusWindowUpdate(PHLWINDOW pWindow);
+    void                     applyNodeDataToWindow(SP<SScrollingWindowData> node, bool instant);
 
     friend struct SWorkspaceData;
 };
