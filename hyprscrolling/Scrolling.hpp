@@ -1,99 +1,60 @@
 #pragma once
 
 #include <vector>
-#include <hyprland/src/layout/IHyprLayout.hpp>
+#include <memory>
+#include <expected>
+#include <string_view>
+
+#include <hyprland/src/layout/algorithm/TiledAlgorithm.hpp>
 #include <hyprland/src/helpers/memory/Memory.hpp>
-#include <hyprland/src/managers/HookSystemManager.hpp>
+#include <hyprland/src/helpers/math/Math.hpp>
 
-class CScrollingLayout;
-struct SWorkspaceData;
+namespace Layout {
+    class ITarget;
+}
 
-// --- 2.2 Camera System ---
 struct SCamera {
     float x = 0.f;
     float y = 0.f;
     float scale = 1.0f;
 };
 
-// --- 2.1 World Model (Window Data) ---
 struct SScrollingWindowData {
-    SScrollingWindowData(PHLWINDOW w, SP<SWorkspaceData> ws) : window(w), workspace(ws) {}
+    SScrollingWindowData(SP<Layout::ITarget> t) : target(t) {}
 
-    PHLWINDOWREF       window;
-    WP<SWorkspaceData> workspace;
+    SP<Layout::ITarget> target;
 
-    // Persistent world-space coordinates independent of the viewport
-    float              world_x = 0.f;
-    float              world_y = 0.f;
-    float              width   = 0.f;
-    float              height  = 0.f;
-
-    bool               ignoreFullscreenChecks = false;
-    PHLWORKSPACEREF    overrideWorkspace;
-
-    CBox               layoutBox; // Used for passing computed screen-space to the renderer
+    float world_x = 0.f;
+    float world_y = 0.f;
+    float width   = 0.f;
+    float height  = 0.f;
 };
 
-// --- 8. Workspace Integration ---
-struct SWorkspaceData {
-    SWorkspaceData(PHLWORKSPACE w, CScrollingLayout* l) : workspace(w), layout(l) {}
-
-    PHLWORKSPACEREF                       workspace;
-    std::vector<SP<SScrollingWindowData>> windowDatas; // Flat list of windows, replacing columns
-    
-    // Each workspace maintains an independent world and camera state
-    SCamera                               camera;
-
-    void                                  addWindow(SP<SScrollingWindowData> w);
-    void                                  removeWindow(PHLWINDOW w);
-
-    void                                  recalculate(bool forceInstant = false);
-
-    CScrollingLayout* layout = nullptr;
-    WP<SWorkspaceData>                    self;
-};
-
-// --- Renderer Integration & Layout Manager ---
-class CScrollingLayout : public IHyprLayout {
+class CScrollingLayout : public Layout::ITiledAlgorithm {
   public:
-    virtual void                     onWindowCreatedTiling(PHLWINDOW, eDirection direction = DIRECTION_DEFAULT);
-    virtual void                     onWindowRemovedTiling(PHLWINDOW);
-    virtual bool                     isWindowTiled(PHLWINDOW);
-    virtual void                     recalculateMonitor(const MONITORID&);
-    virtual void                     recalculateWindow(PHLWINDOW);
-    virtual void                     onBeginDragWindow();
-    virtual void                     resizeActiveWindow(const Vector2D&, eRectCorner corner = CORNER_NONE, PHLWINDOW pWindow = nullptr);
-    virtual void                     fullscreenRequestForWindow(PHLWINDOW pWindow, const eFullscreenMode CURRENT_EFFECTIVE_MODE, const eFullscreenMode EFFECTIVE_MODE);
-    virtual std::any                 layoutMessage(SLayoutMessageHeader, std::string);
-    virtual SWindowRenderLayoutHints requestRenderHints(PHLWINDOW);
-    virtual void                     switchWindows(PHLWINDOW, PHLWINDOW);
-    virtual void                     moveWindowTo(PHLWINDOW, const std::string& dir, bool silent);
-    virtual void                     alterSplitRatio(PHLWINDOW, float, bool);
-    virtual std::string              getLayoutName();
-    virtual void                     replaceWindowDataWith(PHLWINDOW from, PHLWINDOW to);
-    virtual Vector2D                 predictSizeForNewWindowTiled();
+    CScrollingLayout() = default;
+    virtual ~CScrollingLayout() = default;
 
-    virtual void                     onEnable();
-    virtual void                     onDisable();
+    virtual void newTarget(SP<Layout::ITarget> target) override;
+    
+    // Fixed: Hyprutils::Math::Vector2D
+    virtual void movedTarget(SP<Layout::ITarget> target, std::optional<Hyprutils::Math::Vector2D> focalPoint) override;
+    virtual void removeTarget(SP<Layout::ITarget> target) override;
+    virtual void resizeTarget(const Hyprutils::Math::Vector2D& delta, SP<Layout::ITarget> target, Layout::eRectCorner corner) override;
+    
+    virtual void recalculate() override;
+    virtual void swapTargets(SP<Layout::ITarget> a, SP<Layout::ITarget> b) override;
+    virtual void moveTargetInDirection(SP<Layout::ITarget> t, Math::eDirection dir, bool silent) override;
+    virtual std::expected<void, std::string> layoutMsg(const std::string_view& sv) override;
+    
+    // Fixed: Hyprutils::Math::Vector2D
+    virtual std::optional<Hyprutils::Math::Vector2D> predictSizeForNewTarget() override;
 
-    CBox                             usableAreaFor(PHLMONITOR m);
+    virtual SP<Layout::ITarget> getNextCandidate(SP<Layout::ITarget> old) override;
 
   private:
-    std::vector<SP<SWorkspaceData>> m_workspaceDatas;
+    std::vector<SP<SScrollingWindowData>> m_windowDatas;
+    SCamera m_camera;
 
-    SP<HOOK_CALLBACK_FN>            m_configCallback;
-    SP<HOOK_CALLBACK_FN>            m_focusCallback;
-
-    // Config struct for tunable parameters (Phase 4 & 5)
-    struct {
-        float focus_visibility_threshold = 0.4f;
-        float viewport_margin_ratio = 0.3f;
-    } m_config;
-
-    SP<SWorkspaceData>       dataFor(PHLWORKSPACE ws);
-    SP<SScrollingWindowData> dataFor(PHLWINDOW w);
-
-    void                     applyNodeDataToWindow(SP<SScrollingWindowData> node, bool instant);
-
-    friend struct SWorkspaceData;
+    SP<SScrollingWindowData> dataFor(SP<Layout::ITarget> target);
 };
