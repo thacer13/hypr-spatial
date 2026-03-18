@@ -14,13 +14,13 @@ SP<SScrollingWindowData> CScrollingLayout::dataFor(SP<ITarget> target) {
 void CScrollingLayout::newTarget(SP<ITarget> target) {
     auto data = makeShared<SScrollingWindowData>(target);
 
+    // Spec: default_spawn_width = 1200, height = 800
     data->width = 1200.f;
     data->height = 800.f;
 
     float viewport_w = 1920.f;
     float viewport_h = 1080.f;
 
-    // Fetch the actual physical dimensions of the monitor
     if (auto ws = target->workspace()) {
         if (auto mon = ws->m_monitor.lock()) {
             viewport_w = mon->m_size.x;
@@ -28,11 +28,19 @@ void CScrollingLayout::newTarget(SP<ITarget> target) {
         }
     }
 
-    // Center Spawn Policy
+    // --- THE SPATIAL OVERRIDE ---
+    // Tag it as floating so Wayland's Scene Graph handles the Z-index and mouse focus natively.
+    target->setFloating(true);
+
+    // --- SPEC: CENTER SPAWN POLICY ---
+    // Spawn the window exactly where the camera is currently looking
     data->world_x = m_camera.x + (viewport_w / 2.f) - (data->width / 2.f);
     data->world_y = m_camera.y + (viewport_h / 2.f) - (data->height / 2.f);
 
     m_windowDatas.push_back(data);
+
+    // Notice we do NOT need to auto-pan the camera here, because the window 
+    // is intentionally spawning directly in the center of our current view!
     recalculate();
 }
 

@@ -11,6 +11,7 @@
 #include <hyprland/src/config/ConfigManager.hpp>
 #include <hyprland/src/render/Renderer.hpp>
 #include <hyprland/src/managers/KeybindManager.hpp>
+#include <hyprland/src/managers/SeatManager.hpp>
 #undef private
 
 #include <hyprutils/string/VarList.hpp>
@@ -26,7 +27,10 @@ APICALL EXPORT std::string PLUGIN_API_VERSION() {
 
 UP<CScrollingLayout> g_pScrollingLayout;
 
-//
+inline std::any g_keyboardFocusHook;
+inline std::any g_pointerFocusHook;
+
+inline SP<HOOK_CALLBACK_FN> g_pActiveWindowHook;
 
 APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     PHANDLE = handle;
@@ -41,6 +45,33 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     }
 
     bool success = true;
+
+    g_keyboardFocusHook = g_pSeatManager->m_events.keyboardFocusChange.registerListener([](auto...) {
+        
+        // Since the active window pointer was moved out of the Compositor,
+        // we just loop through the window list and ask which one is currently active!
+        for (auto& window : g_pCompositor->m_windows) {
+            
+            // If it's valid, active, and a floating window (our spatial canvas)
+            if (window && g_pCompositor->isWindowActive(window)) {
+                if (window->m_isFloating) {
+                    g_pCompositor->changeWindowZOrder(window, true);
+                }
+                break; // Found the active window, stop looking!
+            }
+        }
+    });
+
+    g_pointerFocusHook = g_pSeatManager->m_events.pointerFocusChange.registerListener([](auto...) {
+        for (auto& window : g_pCompositor->m_windows) {
+            if (window && g_pCompositor->isWindowActive(window)) {
+                if (window->m_isFloating) {
+                    g_pCompositor->changeWindowZOrder(window, true);
+                }
+                break;
+            }
+        }
+    });
 
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprscrolling:fullscreen_on_one_column", Hyprlang::INT{0});
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprscrolling:column_width", Hyprlang::FLOAT{0.5F});
