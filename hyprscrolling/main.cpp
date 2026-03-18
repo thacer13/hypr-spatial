@@ -29,8 +29,21 @@ UP<CScrollingLayout> g_pScrollingLayout;
 
 inline std::any g_keyboardFocusHook;
 inline std::any g_pointerFocusHook;
-
 inline SP<HOOK_CALLBACK_FN> g_pActiveWindowHook;
+
+typedef void (*PMOVEWINDOWTOWORKSPACESAFE)(CCompositor*, PHLWINDOW, PHLWORKSPACE);
+inline CFunctionHook* g_pMoveWindowHook = nullptr;
+
+void hkMoveWindowToWorkspaceSafe(CCompositor* thisptr, PHLWINDOW pWindow, PHLWORKSPACE pWorkspace) {
+    if (pWindow) {
+        // Strip the "Fake Floating" disguise so the target workspace's layout manager adopts it!
+        pWindow->m_isFloating = false;
+    }
+
+    // Pass it back to Hyprland to actually move the window
+    PMOVEWINDOWTOWORKSPACESAFE original = (PMOVEWINDOWTOWORKSPACESAFE)g_pMoveWindowHook->m_original;
+    original(thisptr, pWindow, pWorkspace);
+}
 
 APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
     PHANDLE = handle;
@@ -73,6 +86,12 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
         }
     });
 
+    static const auto MOVEMETHODS = HyprlandAPI::findFunctionsByName(PHANDLE, "moveWindowToWorkspaceSafe");
+    if (!MOVEMETHODS.empty()) {
+        g_pMoveWindowHook = HyprlandAPI::createFunctionHook(PHANDLE, MOVEMETHODS[0].address, (void*)&hkMoveWindowToWorkspaceSafe);
+        g_pMoveWindowHook->hook();
+    }
+
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprscrolling:fullscreen_on_one_column", Hyprlang::INT{0});
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprscrolling:column_width", Hyprlang::FLOAT{0.5F});
     HyprlandAPI::addConfigValue(PHANDLE, "plugin:hyprscrolling:focus_fit_method", Hyprlang::INT{0});
@@ -93,6 +112,9 @@ APICALL EXPORT PLUGIN_DESCRIPTION_INFO PLUGIN_INIT(HANDLE handle) {
 }
 
 APICALL EXPORT void PLUGIN_EXIT() {
+    if (g_pMoveWindowHook) {
+        g_pMoveWindowHook->unhook();
+    }
     HyprlandAPI::removeAlgo(PHANDLE, "spatial");
     g_pScrollingLayout.reset();
 }

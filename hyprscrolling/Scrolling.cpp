@@ -33,14 +33,39 @@ void CScrollingLayout::newTarget(SP<ITarget> target) {
     target->setFloating(true);
 
     // --- SPEC: CENTER SPAWN POLICY ---
-    // Spawn the window exactly where the camera is currently looking
-    data->world_x = m_camera.x + (viewport_w / 2.f) - (data->width / 2.f);
-    data->world_y = m_camera.y + (viewport_h / 2.f) - (data->height / 2.f);
+    // Calculate the ideal starting position directly in the center of the camera
+    float target_x = m_camera.x + (viewport_w / 2.f) - (data->width / 2.f);
+    float target_y = m_camera.y + (viewport_h / 2.f) - (data->height / 2.f);
+
+    // --- CASCADE COLLISION CHECK ---
+    // Prevent windows from spawning perfectly on top of each other
+    float nudge_amount = 40.f; // 40 pixels down and to the right
+    bool position_occupied = true;
+
+    while (position_occupied) {
+        position_occupied = false;
+        
+        for (const auto& existing : m_windowDatas) {
+            // We use a 5-pixel tolerance because floating-point math can sometimes be slightly off
+            if (std::abs(existing->world_x - target_x) < 5.f && 
+                std::abs(existing->world_y - target_y) < 5.f) {
+                
+                // The exact spot is taken! Nudge it and restart the check.
+                target_x += nudge_amount;
+                target_y += nudge_amount;
+                position_occupied = true;
+                break; // Break the for-loop to restart the while-loop check from the top
+            }
+        }
+    }
+
+    // Assign the final, conflict-free coordinates
+    data->world_x = target_x;
+    data->world_y = target_y;
 
     m_windowDatas.push_back(data);
 
-    // Notice we do NOT need to auto-pan the camera here, because the window 
-    // is intentionally spawning directly in the center of our current view!
+    // Notice we do NOT auto-pan the camera here, because it already spawned in the center of our view!
     recalculate();
 }
 
